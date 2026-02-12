@@ -91,3 +91,10 @@
 
 - **Issue**: `README.md` still documented the old handler protocol that included a `storage` field in the expected handler output. The code had already been updated to only expect `rules`.
 - **Fix**: Updated the Smart Learn Mode section in `README.md` to remove `storage` from the expected output, document `default_storage_path` config variable, and clarify that Janny auto-creates storage directories for new categories.
+
+### Enhancement: External Handler New Category Support
+
+- **Issue**: The per-file external classifier (`Classify`) rejected unknown categories, skipping the file. This contradicted the goal of letting handlers propose new categories.
+- **Fix**: Updated `planFile` in `organizer.go` to auto-create storage paths under `default_storage_path` for new categories returned by the handler, consistent with `LearnSmart` behavior.
+- **README**: Updated the External Classifier Protocol section to document that new categories are auto-created.
+- **Tests**: Added `TestOrganizer_PlanFile_HandlerNewCategory` and `TestOrganizer_PlanFile_HandlerNewCategory_NoDefaultPath` in `organizer_test.go`.

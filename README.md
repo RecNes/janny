@@ -79,8 +79,10 @@ If `unknown_file_handler` is set, Janny will invoke the specified command for an
   - **Stdin**: The full Janny configuration (including storage paths and rules) is passed to the script's standard input (stdin) as a JSON object. This allows the script to make decisions based on existing categories.
 - **Output**: The script must print the **category name** (e.g., `documents`, `images`) to standard output (stdout).
 - **Behavior**:
-  - If the script returns a valid category defined in your `[storage]` config, the file is moved there.
-  - If the script returns an empty string or an unknown category, the error is logged to stderr and existing rules continue processing.
+  - If the script returns a category defined in your `[storage]` config, the file is moved there.
+  - If the script returns a **new** category not in `[storage]`, Janny auto-creates a storage directory under `default_storage_path` (e.g., `~/Backup/torrents`) and moves the file there.
+  - If `default_storage_path` is not set and the category is unknown, the file is skipped.
+  - If the script returns an empty string, the file is skipped.
   - If the script exits with a non-zero status code, the error is logged to stderr and the file is skipped. **Janny proceeds to the next file; the process does NOT crash.**
 
 #### Example Script
@@ -96,7 +98,7 @@ FILE="$1"
 MIME=$(file -b --mime-type "$FILE")
 
 if [[ "$MIME" == "application/x-bittorrent" ]]; then
-    # Return a known category
+    # Can be an existing or new category
     echo "torrents"
 fi
 ```

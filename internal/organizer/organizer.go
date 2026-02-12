@@ -335,11 +335,19 @@ func (o *Organizer) planFile(ctx context.Context, path string, isDir bool) (File
 				action.Reason = "external handler returned no category"
 				return action, nil
 			}
-			// Verify category exists
+			// Auto-create storage for new categories under default_storage_path
 			if _, ok := o.config.Storage[category]; !ok {
-				action.Skip = true
-				action.Reason = fmt.Sprintf("unknown category '%s' from handler", category)
-				return action, nil
+				if o.config.Advanced.DefaultStoragePath == "" {
+					action.Skip = true
+					action.Reason = fmt.Sprintf("unknown category '%s' from handler and no default_storage_path set", category)
+					return action, nil
+				}
+				newPath := filepath.Join(o.config.Advanced.DefaultStoragePath, category)
+				o.config.Storage[category] = newPath
+				o.storagePaths[newPath] = true
+				if o.verbose {
+					fmt.Printf("Created new storage: %s -> %s\n", category, newPath)
+				}
 			}
 		} else {
 			action.Skip = true
