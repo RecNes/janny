@@ -60,7 +60,9 @@ unknown_file_handler = "/path/to/script.sh"
 
 If `unknown_file_handler` is set, Janny will invoke the specified command for any file whose extension is not found in the configuration.
 
-- **Input**: The full path to the file is passed as the first argument to the script.
+- **Input**:
+  - **Argument**: The full path to the file is passed as the first argument (`$1`) to the script.
+  - **Stdin**: The full Janny configuration (including storage paths and rules) is passed to the script's standard input (stdin) as a JSON object. This allows the script to make decisions based on existing categories.
 - **Output**: The script must print the **category name** (e.g., `documents`, `images`) to standard output (stdout).
 - **Behavior**:
   - If the script returns a valid category defined in your `[storage]` config, the file is moved there.
@@ -72,9 +74,15 @@ If `unknown_file_handler` is set, Janny will invoke the specified command for an
 ```bash
 #!/bin/bash
 FILE="$1"
+
+# You can also read config from stdin if needed:
+# CONFIG=$(cat)
+# echo "Processing $FILE with config: $CONFIG" >> /tmp/janny_debug.log
+
 MIME=$(file -b --mime-type "$FILE")
 
 if [[ "$MIME" == "application/x-bittorrent" ]]; then
+    # Return a known category
     echo "torrents"
 fi
 ```
