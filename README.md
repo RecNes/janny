@@ -179,20 +179,18 @@ You are a file organizer...
 ```
 
 **Expected Output from Handler (Stdout):**
-The script must print a JSON object proposing new rules and (optionally) new storage paths:
+The script must print a JSON object containing only `rules`:
 
 ```json
 {
   "rules": {
-    "experiments": "xyz",
-    "misc": "abc,foo"
-  },
-  "storage": {
-    "experiments": "~/Documents/Experiments",
-    "misc": "~/Documents/Misc"
+    "documents": "txt,md,xyz",
+    "foos": "foo,abc"
   }
 }
 ```
+
+The handler can update existing categories (e.g., adding `xyz` to `documents`) or propose new ones (e.g., `foos`). For new categories, Janny automatically creates a storage directory under `default_storage_path` (e.g., `~/Backup/foos`).
 
 **Configuration:**
 
@@ -200,6 +198,7 @@ The script must print a JSON object proposing new rules and (optionally) new sto
 [advanced]
 unknown_file_handler = "/path/to/my_llm_script.sh"
 smart_learn_prompt = "You are a file organizer. Analyze these extensions..."
+default_storage_path = "~/Backup"
 ```
 
 ## Development

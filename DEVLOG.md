@@ -84,3 +84,10 @@
   - `smart_learn_prompt`: Prompt for the external handler.
   - `default_storage_path`: Base path for automatically creating storage directories for new categories proposed by the handler.
 - **Verification**: Updated `internal/organizer/learn_smart_test.go` to verify the simplified protocol and default storage path logic.
+
+## 2026-02-13
+
+### Documentation Fix: Learn-From-Handler Protocol
+
+- **Issue**: `README.md` still documented the old handler protocol that included a `storage` field in the expected handler output. The code had already been updated to only expect `rules`.
+- **Fix**: Updated the Smart Learn Mode section in `README.md` to remove `storage` from the expected output, document `default_storage_path` config variable, and clarify that Janny auto-creates storage directories for new categories.
