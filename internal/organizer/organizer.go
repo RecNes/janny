@@ -2,11 +2,13 @@ package organizer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -91,10 +93,9 @@ func (o *Organizer) Run(ctx context.Context) error {
 	}
 
 	// Auto-clean after organization
-	if !o.dryRun {
-		if err := o.Clean(ctx); err != nil {
-			return fmt.Errorf("error during auto-clean: %w", err)
-		}
+	// Auto-clean after organization
+	if err := o.Clean(ctx); err != nil {
+		return fmt.Errorf("error during auto-clean: %w", err)
 	}
 
 	return nil
@@ -455,6 +456,7 @@ func (o *Organizer) executeActions(ctx context.Context, actions []FileAction) er
 // Learn scans the target directories and updates the configuration with inferred rules
 func (o *Organizer) Learn(configPath string) error {
 	learnedCount := 0
+	newRules := make(map[string]string) // ext -> category
 
 	for category, targetDir := range o.config.Storage {
 		if o.verbose {
@@ -499,6 +501,7 @@ func (o *Organizer) Learn(configPath string) error {
 
 			// Update the in-memory ExtensionMap
 			o.config.ExtensionMap[ext] = category
+			newRules[ext] = category
 			learnedCount++
 
 			return nil
@@ -510,7 +513,25 @@ func (o *Organizer) Learn(configPath string) error {
 	}
 
 	if learnedCount > 0 {
+		if o.dryRun {
+			fmt.Printf("[DRY RUN] Would learn %d new file extension rules:\n", learnedCount)
+			for ext, cat := range newRules {
+				fmt.Printf("  • .%s -> %s\n", ext, cat)
+			}
+			fmt.Println("[DRY RUN] Configuration NOT saved.")
+			return nil
+		}
+
 		fmt.Printf("Learned %d new file extension rules.\n", learnedCount)
+
+		// Create backup of config file
+		backupPath, err := o.backupConfigFile(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create config backup: %v\n", err)
+		} else {
+			fmt.Printf("Created config backup: %s\n", backupPath)
+		}
+
 		// Save the updated configuration
 		if err := config.SaveConfig(configPath, o.config); err != nil {
 			return fmt.Errorf("failed to save updated configuration: %w", err)
@@ -521,6 +542,51 @@ func (o *Organizer) Learn(configPath string) error {
 	}
 
 	return nil
+}
+
+// backupConfigFile copies the config file to a timestamped backup
+func (o *Organizer) backupConfigFile(configPath string) (string, error) {
+	// Expand path if needed (handle ~/)
+	expandedPath, err := expandPath(configPath)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := os.ReadFile(expandedPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil // No config file to backup
+		}
+		return "", err
+	}
+
+	timestamp := time.Now().Format("20060102150405")
+	backupPath := fmt.Sprintf("%s.%s.bak", expandedPath, timestamp)
+
+	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+		return "", err
+	}
+
+	return backupPath, nil
+}
+
+// Helper for path expansion inside this package since config.expandPath is private
+// Duplicate logic, but Organizer already references config...
+// Actually, config.LoadConfig uses a private expandPath.
+// We can just rely on basic expansion here or expose it from config.
+// Since I cannot change config package easily without potential circular deps or visibility changes,
+// I'll implement a simple one here or use user home dir.
+func expandPath(path string) (string, error) {
+	if !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(home, path[2:]), nil
 }
 
 // Clean performs auto-deletion of old files based on configuration
@@ -583,10 +649,14 @@ func (o *Organizer) Clean(ctx context.Context) error {
 					fmt.Printf("Deleting old item: %s (Modified: %s)\n", fullPath, info.ModTime().Format(time.RFC3339))
 				}
 
-				if err := os.RemoveAll(fullPath); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to delete %s: %v\n", fullPath, err)
+				if o.dryRun {
+					fmt.Printf("[DRY RUN] Would delete: %s\n", fullPath)
 				} else {
-					cleanedCount++
+					if err := os.RemoveAll(fullPath); err != nil {
+						fmt.Fprintf(os.Stderr, "Failed to delete %s: %v\n", fullPath, err)
+					} else {
+						cleanedCount++
+					}
 				}
 			}
 		}
@@ -596,4 +666,202 @@ func (o *Organizer) Clean(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// LearnSmart uses the external handler to categorize unknown extensions
+func (o *Organizer) LearnSmart(ctx context.Context, configPath string) error {
+	if o.handler == nil {
+		return fmt.Errorf("external handler is not configured")
+	}
+
+	o.updateStatus("Scanning for unknown extensions...")
+
+	unknownExts, err := o.collectUnknownExtensions(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to collect unknown extensions: %w", err)
+	}
+
+	if len(unknownExts) == 0 {
+		fmt.Println("No unknown extensions found.")
+		return nil
+	}
+
+	fmt.Printf("Found %d unknown extensions: %s\n", len(unknownExts), strings.Join(unknownExts, ", "))
+	o.updateStatus("Querying external handler...")
+
+	response, err := o.handler.SmartLearn(ctx, unknownExts, o.config.Advanced.SmartLearnPrompt)
+	if err != nil {
+		return fmt.Errorf("smart learn failed: %w", err)
+	}
+
+	// Process response
+	learnedCount := 0
+
+	// Print raw response in verbose mode
+	if o.verbose {
+		fmt.Println("Received response from handler:")
+		jsonResp, _ := json.MarshalIndent(response, "", "  ")
+		fmt.Println(string(jsonResp))
+	}
+
+	if o.dryRun {
+		fmt.Println("[DRY RUN] Would learn the following rules:")
+		for category, exts := range response.Rules {
+			fmt.Printf("  Category [%s]: %s\n", category, exts)
+			// Check if storage exists or will be created
+			if _, exists := o.config.Storage[category]; !exists {
+				if o.config.Advanced.DefaultStoragePath != "" {
+					newPath := filepath.Join(o.config.Advanced.DefaultStoragePath, category)
+					fmt.Printf("  [New Storage] Category [%s]: %s\n", category, newPath)
+				} else {
+					fmt.Printf("  [WARN] Category [%s] has no storage and no default_storage_path set.\n", category)
+				}
+			}
+		}
+		return nil
+	}
+
+	// Apply updates
+	for category, extsStr := range response.Rules {
+		// Update rules
+		currentRules := o.config.Rules[category]
+		exts := strings.Split(extsStr, ",")
+
+		newExts := make([]string, 0)
+		for _, ext := range exts {
+			ext = strings.TrimSpace(strings.ToLower(strings.TrimPrefix(ext, ".")))
+			if ext == "" {
+				continue
+			}
+			// Check if already mapped?
+			// The handler might propose rules for extensions we already know if we sent them?
+			// But we only sent unknown extensions.
+			// However, let's be safe.
+			if _, exists := o.config.ExtensionMap[ext]; exists {
+				continue
+			}
+			newExts = append(newExts, ext)
+
+			// Update in-memory map
+			o.config.ExtensionMap[ext] = category
+		}
+
+		if len(newExts) > 0 {
+			toAdd := strings.Join(newExts, ",")
+			if currentRules == "" {
+				o.config.Rules[category] = toAdd
+			} else {
+				o.config.Rules[category] = currentRules + "," + toAdd
+			}
+			learnedCount += len(newExts)
+
+			// Ensure storage path exists for this category
+			if _, exists := o.config.Storage[category]; !exists {
+				// Use DefaultStoragePath
+				if o.config.Advanced.DefaultStoragePath == "" {
+					fmt.Printf("[WARN] No storage path defined for new category '%s' and no default_storage_path set. Skipping storage creation.\n", category)
+				} else {
+					newPath := filepath.Join(o.config.Advanced.DefaultStoragePath, category)
+					o.config.Storage[category] = newPath
+					fmt.Printf("Added new category storage: %s -> %s\n", category, newPath)
+				}
+			}
+		}
+	}
+
+	if learnedCount > 0 {
+		fmt.Printf("Learned %d new file extension rules.\n", learnedCount)
+
+		// Create backup of config file
+		backupPath, err := o.backupConfigFile(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create config backup: %v\n", err)
+		} else {
+			fmt.Printf("Created config backup: %s\n", backupPath)
+		}
+
+		// Save the updated configuration
+		if err := config.SaveConfig(configPath, o.config); err != nil {
+			return fmt.Errorf("failed to save updated configuration: %w", err)
+		}
+		fmt.Printf("Configuration saved to %s\n", configPath)
+	} else {
+		fmt.Println("No new rules learned.")
+	}
+
+	return nil
+}
+
+func (o *Organizer) collectUnknownExtensions(ctx context.Context) ([]string, error) {
+	uniqueExts := make(map[string]bool)
+
+	// Helper to scan a directory
+	scanDir := func(dir string) error {
+		return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				if os.IsNotExist(err) {
+					return nil
+				}
+				// Don't fail on permission errors, just skip
+				if os.IsPermission(err) {
+					return nil
+				}
+				return nil // Continue on error
+			}
+
+			if d.IsDir() {
+				// Don't traverse into storage paths if we are scanning source paths?
+				// Actually, we want to scan everything provided.
+				// But we should respect .gitignore or hidden files?
+				// For now, keep it simple, but skip hidden dirs?
+				if strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
+			if ext == "" {
+				return nil
+			}
+
+			// Check if unknown
+			if _, known := o.config.ExtensionMap[ext]; !known {
+				uniqueExts[ext] = true
+			}
+			return nil
+		})
+	}
+
+	// Scan Source Paths
+	for _, path := range o.config.General.SourcePaths {
+		if err := scanDir(path); err != nil {
+			return nil, err
+		}
+	}
+
+	// Scan Storage Paths
+	for _, path := range o.config.Storage {
+		path, err := expandPath(path)
+		if err != nil {
+			continue // skip invalid paths
+		}
+		if err := scanDir(path); err != nil {
+			return nil, err
+		}
+	}
+
+	result := make([]string, 0, len(uniqueExts))
+	for ext := range uniqueExts {
+		result = append(result, ext)
+	}
+	sort.Strings(result)
+
+	return result, nil
 }

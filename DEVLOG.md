@@ -58,3 +58,29 @@
 - **Always-On**: Cloud file detection is always enabled - no configuration required. This prevents accidental processing of placeholder files that would trigger downloads and cause system hangs.
 - **Directory Safety**: The organizer checks contents of directories before moving them. If a directory contains any cloud placeholders, it is skipped entirely to prevent OS-level hangs during move operations.
 - **Pattern-Matched Directories**: Cloud file checking is integrated into the pattern matching logic, so even directories matched by folder patterns (like `folder:*`) are checked for cloud files before moving.
+
+### Bug Fix: Dry Run Consistency
+
+- **Issue**: `dry-run` mode was not respected by `Learn` (which updated config) and `AutoCleanup` (which was skipped entirely or would have deleted files).
+- **Fix**: Updated `Organizer.Learn` and `Organizer.Clean` to check `dryRun` flag. `Clean` now reports what it would delete, and `Learn` reports what it would learn, without side effects.
+- **Verification**: Added `internal/organizer/dryrun_test.go` to verify these scenarios.
+
+### Enhancement: Backup Exclusion Control
+
+- **Granular Control**: Split the generic `exclude` backup configuration into `exclude_file_types` and `exclude_directories`.
+- **Implementation**: Updated `internal/config` and `internal/backup` to handle these specific exclusions, ensuring correct argument generation for `rsync` (e.g., `*.ext` for types, `dir/` for directories).
+- **Issues Fixed**:
+  - **Backup Source**: Changed backup source from `source_paths` (input dirs) to `storage` (organized destination dirs), ensuring we backup the clean structure.
+  - **Dry Run**: Improved `dry-run` behavior to execute `rsync` with `-n` flag instead of just printing the command, providing accurate preview of file operations.
+
+### Feature Update: Learn From Handler
+
+- **Bulk Learning**: Implemented `--learn-from-handler` flag.
+- **Mechanism**: Scans both source and storage paths for unknown extensions. Sends the list (along with current rules) to the configured `unknown_file_handler` in a simplified JSON payload.
+- **Protocol**:
+  - Input (Stdin): `Prompt + \n + JSON({"unknown_extensions": [...], "rules": {...}})`
+  - Output (Stdout): `{"rules": {...}}`
+- **Config**:
+  - `smart_learn_prompt`: Prompt for the external handler.
+  - `default_storage_path`: Base path for automatically creating storage directories for new categories proposed by the handler.
+- **Verification**: Updated `internal/organizer/learn_smart_test.go` to verify the simplified protocol and default storage path logic.

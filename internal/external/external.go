@@ -60,3 +60,56 @@ func (h *Handler) Classify(ctx context.Context, filePath string) (string, error)
 	category := strings.TrimSpace(out.String())
 	return category, nil
 }
+
+type SmartLearnPayload struct {
+	UnknownExtensions []string          `json:"unknown_extensions"`
+	Rules             map[string]string `json:"rules"`
+}
+
+type SmartLearnResponse struct {
+	Rules map[string]string `json:"rules"`
+}
+
+// SmartLearn executes the external command with a batch of unknown extensions
+func (h *Handler) SmartLearn(ctx context.Context, extensions []string, prompt string) (*SmartLearnResponse, error) {
+	if h.command == "" {
+		return nil, fmt.Errorf("no external handler command configured")
+	}
+
+	payload := SmartLearnPayload{
+		UnknownExtensions: extensions,
+		Rules:             h.config.Rules,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	// Create command with longer timeout for batch
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second) // 2 minutes timeout
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", h.command)
+
+	// Prepare stdin: Prompt + Newline + JSON
+	// Ensure JSON is compact (json.Marshal does this by default)
+	input := prompt + "\n" + string(jsonData)
+	cmd.Stdin = strings.NewReader(input)
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("external command failed: %v, stderr: %s", err, errOut.String())
+	}
+
+	var response SmartLearnResponse
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w\nOutput was:\n%s", err, out.String())
+	}
+
+	return &response, nil
+}

@@ -62,7 +62,8 @@ tmp = 1
 [backup]
 enabled = false
 destination = "/Volumes/ExternalDisk/Backups"
-exclude = [".DS_Store"]
+exclude_file_types = ["tmp", "bak", "DS_Store"]
+exclude_directories = ["temp", "cache", "node_modules"]
 
 [advanced]
 # Optional: Path to a script that takes a filename and returns a category
@@ -146,6 +147,60 @@ janny --learn
 ```
 
 This will scan your configured storage directories, identify file extensions, and update your configuration file to map those extensions to the corresponding storage categories.
+
+### Smart Learn Mode (Handler Protocol)
+
+You can use the `--learn-from-handler` flag to let an external script (e.g. an LLM wrapper) propose rules for unknown extensions in bulk.
+
+**Command:**
+
+```bash
+janny --learn-from-handler
+```
+
+**Input to Handler (Stdin):**
+Janny sends two parts to your configured `unknown_file_handler` script's stdin, separated by a newline:
+
+1.  The content of `smart_learn_prompt`.
+2.  A compact JSON object with the unknown extensions and current rules.
+
+Format:
+
+```text
+<PROMPT_STRING>
+<JSON_PAYLOAD>
+```
+
+Example Input:
+
+```text
+You are a file organizer...
+{"unknown_extensions":["xyz","abc"],"rules":{"documents":"txt,md"}}
+```
+
+**Expected Output from Handler (Stdout):**
+The script must print a JSON object proposing new rules and (optionally) new storage paths:
+
+```json
+{
+  "rules": {
+    "experiments": "xyz",
+    "misc": "abc,foo"
+  },
+  "storage": {
+    "experiments": "~/Documents/Experiments",
+    "misc": "~/Documents/Misc"
+  }
+}
+```
+
+**Configuration:**
+
+```toml
+[advanced]
+unknown_file_handler = "/path/to/my_llm_script.sh"
+smart_learn_prompt = "You are a file organizer. Analyze these extensions..."
+```
 
 ## Development
 

@@ -43,13 +43,16 @@ type GeneralConfig struct {
 }
 
 type BackupConfig struct {
-	Enabled     bool     `toml:"enabled"`
-	Destination string   `toml:"destination"`
-	Exclude     []string `toml:"exclude"`
+	Enabled            bool     `toml:"enabled"`
+	Destination        string   `toml:"destination"`
+	ExcludeFileTypes   []string `toml:"exclude_file_types"`
+	ExcludeDirectories []string `toml:"exclude_directories"`
 }
 
 type AdvancedConfig struct {
 	UnknownFileHandler string `toml:"unknown_file_handler"`
+	SmartLearnPrompt   string `toml:"smart_learn_prompt"`
+	DefaultStoragePath string `toml:"default_storage_path"`
 }
 
 // LoadConfig reads and parses the configuration file
@@ -157,12 +160,15 @@ func DefaultConfig() *Config {
 			"videos":    "mp4,mkv,avi,mov",
 		},
 		Backup: BackupConfig{
-			Enabled:     false,
-			Destination: "",
-			Exclude:     []string{},
+			Enabled:            false,
+			Destination:        "",
+			ExcludeFileTypes:   []string{},
+			ExcludeDirectories: []string{},
 		},
 		Advanced: AdvancedConfig{
 			UnknownFileHandler: "",
+			SmartLearnPrompt:   "You are a file organization assistant. I will provide a list of file extensions that I have found in my chaotic directories, along with my current organization rules and storage paths. Your task is to propose new rules for these extensions. \n\nOutput ONLY a JSON object with the following structure:\n{\n  \"rules\": {\n    \"category_name\": \"ext1,ext2\"\n  }\n}\n\nReuse existing categories if they fit. Create new categories only if necessary. Config is: ",
+			DefaultStoragePath: "~/Documents/Janny/Organized",
 		},
 	}
 }
@@ -194,6 +200,15 @@ func (c *Config) process() error {
 			return fmt.Errorf("failed to expand backup destination: %w", err)
 		}
 		c.Backup.Destination = expanded
+	}
+
+	// Expand default storage path
+	if c.Advanced.DefaultStoragePath != "" {
+		expanded, err := expandPath(c.Advanced.DefaultStoragePath)
+		if err != nil {
+			return fmt.Errorf("failed to expand default storage path: %w", err)
+		}
+		c.Advanced.DefaultStoragePath = expanded
 	}
 
 	// Build extension map and patterns

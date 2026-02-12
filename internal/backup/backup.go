@@ -4,21 +4,22 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/evrenesat/janny/internal/config"
 )
 
 type Backup struct {
-	config      *config.BackupConfig
-	sourcePaths []string
-	dryRun      bool
+	config       *config.BackupConfig
+	storagePaths []string
+	dryRun       bool
 }
 
-func New(cfg *config.BackupConfig, sourcePaths []string, dryRun bool) *Backup {
+func New(cfg *config.BackupConfig, storagePaths []string, dryRun bool) *Backup {
 	return &Backup{
-		config:      cfg,
-		sourcePaths: sourcePaths,
-		dryRun:      dryRun,
+		config:       cfg,
+		storagePaths: storagePaths,
+		dryRun:       dryRun,
 	}
 }
 
@@ -38,7 +39,7 @@ func (b *Backup) Run() error {
 		}
 	}
 
-	for _, source := range b.sourcePaths {
+	for _, source := range b.storagePaths {
 		if err := b.sync(source); err != nil {
 			return fmt.Errorf("backup failed for source %s: %w", source, err)
 		}
@@ -50,16 +51,36 @@ func (b *Backup) Run() error {
 func (b *Backup) sync(source string) error {
 	args := []string{"-av", "--delete"}
 
-	// Add exclusions
-	for _, exclude := range b.config.Exclude {
-		args = append(args, "--exclude", exclude)
+	if b.dryRun {
+		args = append(args, "-n")
+	}
+
+	// Add file type exclusions
+	for _, ext := range b.config.ExcludeFileTypes {
+		// Ensure we're excluding based on extension pattern
+		if !strings.HasPrefix(ext, "*.") {
+			if strings.HasPrefix(ext, ".") {
+				ext = "*" + ext
+			} else {
+				ext = "*." + ext
+			}
+		}
+		args = append(args, "--exclude", ext)
+	}
+
+	// Add directory exclusions
+	for _, dir := range b.config.ExcludeDirectories {
+		// Ensure directory pattern ends with slash to match only directories
+		if !strings.HasSuffix(dir, "/") {
+			dir = dir + "/"
+		}
+		args = append(args, "--exclude", dir)
 	}
 
 	args = append(args, source, b.config.Destination)
 
 	if b.dryRun {
 		fmt.Printf("[DRY RUN] rsync %s\n", args)
-		return nil
 	}
 
 	cmd := exec.Command("rsync", args...)
