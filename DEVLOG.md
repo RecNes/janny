@@ -38,3 +38,23 @@
 - **Auto Clean**: Added `[auto_clean]` configuration section to automatically delete files in specific categories older than a configured number of days.
 - **Organizer Logic**: Updated the organizer to handle directory entries and run the cleaning process after organization.
 - **Verification**: Verified the new features using a reproduction script `temp/repro.go` in a controlled environment, confirming correct behavior for folder matching and file deletion.
+
+### Bug Fix: Exclude Storage Paths
+
+- **Issue**: Storage paths nested within source paths were being processed by the organizer, potentially causing infinite loops or errors when moving files into themselves.
+- **Fix**: Updated `Organizer` to track configured storage paths and explicitly exclude them during the planning phase.
+- **Verification**: Confirmed via `temp/repro_exclude.go` that nested storage directories are skipped during scanning.
+
+### Improvement: UX & Stability
+
+- **Graceful Shutdown**: Implemented signal handling (`SIGINT`/`SIGTERM`) to allow safe cancellation with Ctrl+C.
+- **Progress Feedback**: Added in-place progress updates (`Scanning...`, `Moving...`) to provide visual feedback during long operations without flooding the terminal (when not in verbose mode).
+- **Context Awareness**: Updated organizer loops to respect context cancellation immediately.
+
+### Improvement: Cloud File Support
+
+- **Detection**: Added logic to detect macOS-specific `SF_DATALESS` (0x40000000) flag on files, which indicates iCloud placeholders.
+- **Cross-Platform**: Implemented platform-specific checks (`platform_darwin.go`, `platform_other.go`) to ensure Linux compatibility is maintained.
+- **Always-On**: Cloud file detection is always enabled - no configuration required. This prevents accidental processing of placeholder files that would trigger downloads and cause system hangs.
+- **Directory Safety**: The organizer checks contents of directories before moving them. If a directory contains any cloud placeholders, it is skipped entirely to prevent OS-level hangs during move operations.
+- **Pattern-Matched Directories**: Cloud file checking is integrated into the pattern matching logic, so even directories matched by folder patterns (like `folder:*`) are checked for cloud files before moving.

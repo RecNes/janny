@@ -6,6 +6,9 @@ Janny is a CLI tool designed to keep your home directory organized by moving fil
 
 - **Automated Organization**: Scans source directories and moves files based on extensions.
 - **Smart Conflict Resolution**: Automatically renames files if a file with the same name exists in the target.
+- **Pattern Matching**: Support for glob patterns, regex, and folder patterns for advanced file organization.
+- **Auto-Clean**: Automatically delete old files from specific categories after a configurable number of days.
+- **Cloud File Handling**: Automatically detects and skips iCloud placeholder files to prevent system hangs (macOS).
 - **External Handlers**: Delegate unknown file types to external scripts for custom classification.
 - **Backup System**: Integrated `rsync` wrapper to backup organized files to external storage.
 - **Dry Run Mode**: Preview changes without actually moving files.
@@ -96,6 +99,33 @@ if [[ "$MIME" == "application/x-bittorrent" ]]; then
     echo "torrents"
 fi
 ```
+
+### Auto-Clean
+
+The `auto_clean` feature automatically deletes old files from specific categories after they've been organized. This is useful for temporary directories or files you don't need to keep long-term.
+
+**How it works:**
+
+- Runs automatically after each organization (unless in dry-run mode)
+- Checks the modification time of files in the specified categories
+- Deletes files (and directories) older than the configured number of days
+- Skips cloud-backed placeholder files to avoid triggering downloads
+
+**Configuration:**
+
+```toml
+[auto_clean]
+installers = 15  # Delete installer files older than 15 days
+downloads = 30   # Delete downloads older than 30 days
+temp = 1         # Delete temp files older than 1 day
+```
+
+**Important Notes:**
+
+- This is a **destructive operation** - deleted files cannot be recovered
+- Only applies to files in your configured storage directories
+- Set backup = true if you want to keep copies before deletion
+- Cloud-backed files are automatically skipped to prevent unwanted downloads
 
 ## Usage
 
