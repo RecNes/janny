@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/evrenesat/janny/internal/config"
@@ -105,8 +106,51 @@ func (o *Organizer) planFile(ctx context.Context, path string) (FileAction, erro
 	}
 
 	if ext == "" {
-		action.Skip = true
-		action.Reason = "no extension"
+		// Even without extension, it might match a pattern (e.g. "README")
+		// So we shouldn't skip yet, unless we want to enforce extensions for simple rules.
+		// Use empty ext for extension map lookup (which will likely fail), but check patterns.
+	}
+
+	// 1. Check Patterns (Priority)
+	for _, rule := range o.config.Patterns {
+		matched := false
+		var err error
+
+		switch rule.Type {
+		case config.PatternTypeGlob:
+			matched, err = filepath.Match(rule.Pattern, filename)
+			if err != nil {
+				// Invalid glob pattern in config, log and continue?
+				fmt.Fprintf(os.Stderr, "Invalid glob pattern '%s': %v\n", rule.Pattern, err)
+				continue
+			}
+		case config.PatternTypeRegex:
+			matched, err = regexp.MatchString(rule.Pattern, filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid regex pattern '%s': %v\n", rule.Pattern, err)
+				continue
+			}
+		}
+
+		if matched {
+			if o.verbose {
+				fmt.Printf("File '%s' matched pattern '%s' -> %s\n", filename, rule.Pattern, rule.Category)
+			}
+			// Found a match!
+			return o.createAction(path, filename, rule.Category)
+		}
+	}
+
+	// 2. Check Extension Map
+	if ext == "" {
+		// If no extension and no pattern matched, skip
+		action := FileAction{
+			SourceDir: filepath.Dir(path),
+			Filename:  filename,
+			DestName:  filename,
+			Skip:      true,
+			Reason:    "no extension and no pattern match",
+		}
 		return action, nil
 	}
 
@@ -138,16 +182,26 @@ func (o *Organizer) planFile(ctx context.Context, path string) (FileAction, erro
 		}
 	}
 
-	action.Category = category
-	action.TargetDir = o.config.Storage[category]
+	return o.createAction(path, filename, category)
+}
+
+func (o *Organizer) createAction(path, filename, category string) (FileAction, error) {
+	action := FileAction{
+		SourceDir: filepath.Dir(path),
+		Filename:  filename,
+		DestName:  filename,
+		Category:  category,
+		TargetDir: o.config.Storage[category],
+	}
 
 	// Check for conflicts and resolve filename
 	targetPath := filepath.Join(action.TargetDir, action.DestName)
 	if _, err := os.Stat(targetPath); err == nil {
 		// Conflict detected, find a new name
 		name := strings.TrimSuffix(filename, filepath.Ext(filename))
+		ext := filepath.Ext(filename)
 		for i := 1; ; i++ {
-			newFilename := fmt.Sprintf("%s_%d.%s", name, i, ext)
+			newFilename := fmt.Sprintf("%s_%d%s", name, i, ext)
 			targetPath = filepath.Join(action.TargetDir, newFilename)
 			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
 				action.DestName = newFilename

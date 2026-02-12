@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -19,6 +20,20 @@ type Config struct {
 
 	// Derived configuration
 	ExtensionMap map[string]string `toml:"-"` // extension -> category
+	Patterns     []PatternRule     `toml:"-"` // ordered list of pattern rules
+}
+
+type PatternType int
+
+const (
+	PatternTypeGlob PatternType = iota
+	PatternTypeRegex
+)
+
+type PatternRule struct {
+	Category string
+	Pattern  string
+	Type     PatternType
 }
 
 type GeneralConfig struct {
@@ -179,21 +194,73 @@ func (c *Config) process() error {
 		c.Backup.Destination = expanded
 	}
 
-	// Build extension map
+	// Build extension map and patterns
 	c.ExtensionMap = make(map[string]string)
-	for category, extensions := range c.Rules {
+	c.Patterns = make([]PatternRule, 0)
+
+	// Get sorted keys for determinism
+	categories := make([]string, 0, len(c.Rules))
+	for k := range c.Rules {
+		categories = append(categories, k)
+	}
+	// Sort categories to ensure consistent order of pattern evaluation
+	// If a file matches multiple patterns from different categories, the first one wins
+	// The user requirement said: "if multiple patterns from different categories match the same file, the winner is determined by alphabetical order of the category name"
+	// So we should append patterns in alphabetical order of categories.
+	// Since we iterate sequentially in Organizer, the first match wins.
+	// So sorting categories alphabetically here achieves that.
+	sort.Strings(categories)
+
+	for _, category := range categories {
 		// Verify category exists in storage
 		if _, ok := c.Storage[category]; !ok {
 			return fmt.Errorf("rule references unknown storage category: %s", category)
 		}
 
-		// Split comma-separated extensions
-		exts := strings.Split(extensions, ",")
-		for _, ext := range exts {
-			cleanExt := strings.TrimSpace(strings.TrimPrefix(ext, "."))
-			if cleanExt == "" {
+		extensions := c.Rules[category]
+		// Split comma-separated rules
+		rules := strings.Split(extensions, ",")
+		for _, rule := range rules {
+			rule = strings.TrimSpace(rule)
+			if rule == "" {
 				continue
 			}
+
+			// Check for Regex
+			if strings.HasPrefix(rule, "regex:") {
+				pattern := strings.TrimPrefix(rule, "regex:")
+				c.Patterns = append(c.Patterns, PatternRule{
+					Category: category,
+					Pattern:  pattern,
+					Type:     PatternTypeRegex,
+				})
+				continue
+			}
+
+			// Check for Glob
+			// Explicit glob: prefix
+			if strings.HasPrefix(rule, "glob:") {
+				pattern := strings.TrimPrefix(rule, "glob:")
+				c.Patterns = append(c.Patterns, PatternRule{
+					Category: category,
+					Pattern:  pattern,
+					Type:     PatternTypeGlob,
+				})
+				continue
+			}
+
+			// Implicit glob: contains *, ?, [, ]
+			if strings.ContainsAny(rule, "*?[]") {
+				c.Patterns = append(c.Patterns, PatternRule{
+					Category: category,
+					Pattern:  rule,
+					Type:     PatternTypeGlob,
+				})
+				continue
+			}
+
+			// Otherwise, it's a simple extension
+			cleanExt := strings.TrimPrefix(rule, ".")
 			c.ExtensionMap[strings.ToLower(cleanExt)] = category
 		}
 	}

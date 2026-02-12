@@ -36,6 +36,16 @@ documents = "pdf,doc,docx,txt,md"
 images = "jpg,jpeg,png,gif"
 archives = "zip,tar,gz,7z"
 
+# New: Advanced Pattern Matching
+# Globs (implicit with *, ?, [], or explicit with glob: prefix)
+reports = "*report*.pdf, glob:monthly_*.xls"
+
+# Regex (must start with regex:)
+scans = "regex:^scan_\\d{4}\\.pdf$"
+
+# Note: Patterns are checked BEFORE simple extension rules.
+# So a file "final_report.pdf" will match 'reports' (glob) instead of 'documents' (pdf).
+
 [backup]
 enabled = false
 destination = "/Volumes/ExternalDisk/Backups"
