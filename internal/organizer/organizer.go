@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/evrenesat/janny/internal/config"
 	"github.com/evrenesat/janny/internal/external"
@@ -64,6 +65,14 @@ func (o *Organizer) Run(ctx context.Context) error {
 			}
 		}
 	}
+
+	// Auto-clean after organization
+	if !o.dryRun {
+		if err := o.Clean(ctx); err != nil {
+			return fmt.Errorf("error during auto-clean: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -77,13 +86,8 @@ func (o *Organizer) planDirectory(ctx context.Context, sourcePath string) ([]Fil
 	}
 
 	for _, d := range entries {
-		// Skip subdirectories
-		if d.IsDir() {
-			continue
-		}
-
 		path := filepath.Join(sourcePath, d.Name())
-		action, err := o.planFile(ctx, path)
+		action, err := o.planFile(ctx, path, d.IsDir())
 		if err != nil {
 			// Log error but continue
 			fmt.Fprintf(os.Stderr, "Error planning file %s: %v\n", d.Name(), err)
@@ -95,7 +99,7 @@ func (o *Organizer) planDirectory(ctx context.Context, sourcePath string) ([]Fil
 	return actions, nil
 }
 
-func (o *Organizer) planFile(ctx context.Context, path string) (FileAction, error) {
+func (o *Organizer) planFile(ctx context.Context, path string, isDir bool) (FileAction, error) {
 	filename := filepath.Base(path)
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
 
@@ -118,6 +122,9 @@ func (o *Organizer) planFile(ctx context.Context, path string) (FileAction, erro
 
 		switch rule.Type {
 		case config.PatternTypeGlob:
+			if isDir {
+				continue
+			}
 			matched, err = filepath.Match(rule.Pattern, filename)
 			if err != nil {
 				// Invalid glob pattern in config, log and continue?
@@ -125,20 +132,43 @@ func (o *Organizer) planFile(ctx context.Context, path string) (FileAction, erro
 				continue
 			}
 		case config.PatternTypeRegex:
+			if isDir {
+				continue
+			}
 			matched, err = regexp.MatchString(rule.Pattern, filename)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Invalid regex pattern '%s': %v\n", rule.Pattern, err)
+				continue
+			}
+		case config.PatternTypeFolder:
+			if !isDir {
+				continue
+			}
+			matched, err = filepath.Match(rule.Pattern, filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid folder pattern '%s': %v\n", rule.Pattern, err)
 				continue
 			}
 		}
 
 		if matched {
 			if o.verbose {
-				fmt.Printf("File '%s' matched pattern '%s' -> %s\n", filename, rule.Pattern, rule.Category)
+				fmt.Printf("Entry '%s' matched pattern '%s' -> %s\n", filename, rule.Pattern, rule.Category)
 			}
 			// Found a match!
 			return o.createAction(path, filename, rule.Category)
 		}
+	}
+
+	if isDir {
+		// Directories only match specific folder patterns, not extensions
+		return FileAction{
+			SourceDir: filepath.Dir(path),
+			Filename:  filename,
+			DestName:  filename,
+			Skip:      true,
+			Reason:    "directory not matched by any folder pattern",
+		}, nil
 	}
 
 	// 2. Check Extension Map
@@ -345,5 +375,60 @@ func (o *Organizer) Learn(configPath string) error {
 		fmt.Println("No new rules learned.")
 	}
 
+	return nil
+}
+
+// Clean performs auto-deletion of old files based on configuration
+func (o *Organizer) Clean(ctx context.Context) error {
+	for category, days := range o.config.AutoClean {
+		targetDir, ok := o.config.Storage[category]
+		if !ok {
+			// Config validation should catch this, but safe check
+			if o.verbose {
+				fmt.Printf("Auto-clean skipped for category '%s': no storage path defined\n", category)
+			}
+			continue
+		}
+
+		if o.verbose {
+			fmt.Printf("Cleaning category '%s' (older than %d days) in %s\n", category, days, targetDir)
+		}
+
+		cutoff := time.Now().AddDate(0, 0, -days)
+
+		entries, err := os.ReadDir(targetDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("failed to read directory %s for cleaning: %w", targetDir, err)
+		}
+
+		cleanedCount := 0
+		for _, entry := range entries {
+			info, err := entry.Info()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to get info for %s: %v\n", entry.Name(), err)
+				continue
+			}
+
+			if info.ModTime().Before(cutoff) {
+				fullPath := filepath.Join(targetDir, entry.Name())
+				if o.verbose {
+					fmt.Printf("Deleting old item: %s (Modified: %s)\n", fullPath, info.ModTime().Format(time.RFC3339))
+				}
+
+				if err := os.RemoveAll(fullPath); err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to delete %s: %v\n", fullPath, err)
+				} else {
+					cleanedCount++
+				}
+			}
+		}
+
+		if cleanedCount > 0 && o.verbose {
+			fmt.Printf("Deleted %d old items from %s\n", cleanedCount, targetDir)
+		}
+	}
 	return nil
 }

@@ -12,11 +12,12 @@ import (
 
 // Config represents the application configuration structure
 type Config struct {
-	General  GeneralConfig     `toml:"general"`
-	Storage  map[string]string `toml:"storage"`
-	Rules    map[string]string `toml:"rules"`
-	Backup   BackupConfig      `toml:"backup"`
-	Advanced AdvancedConfig    `toml:"advanced"`
+	General   GeneralConfig     `toml:"general"`
+	Storage   map[string]string `toml:"storage"`
+	Rules     map[string]string `toml:"rules"`
+	Backup    BackupConfig      `toml:"backup"`
+	Advanced  AdvancedConfig    `toml:"advanced"`
+	AutoClean map[string]int    `toml:"auto_clean"`
 
 	// Derived configuration
 	ExtensionMap map[string]string `toml:"-"` // extension -> category
@@ -28,6 +29,7 @@ type PatternType int
 const (
 	PatternTypeGlob PatternType = iota
 	PatternTypeRegex
+	PatternTypeFolder
 )
 
 type PatternRule struct {
@@ -245,6 +247,17 @@ func (c *Config) process() error {
 					Category: category,
 					Pattern:  pattern,
 					Type:     PatternTypeGlob,
+				})
+				continue
+			}
+
+			// Check for Folder
+			if strings.HasPrefix(rule, "folder:") {
+				pattern := strings.TrimPrefix(rule, "folder:")
+				c.Patterns = append(c.Patterns, PatternRule{
+					Category: category,
+					Pattern:  pattern,
+					Type:     PatternTypeFolder,
 				})
 				continue
 			}

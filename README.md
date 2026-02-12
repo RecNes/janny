@@ -46,6 +46,16 @@ scans = "regex:^scan_\\d{4}\\.pdf$"
 # Note: Patterns are checked BEFORE simple extension rules.
 # So a file "final_report.pdf" will match 'reports' (glob) instead of 'documents' (pdf).
 
+# Folders (must start with folder:)
+projects = "folder:project_*"
+misc = "folder:*" # Catch-all for folders
+
+[auto_clean]
+# Automatically delete files older than X days in specific categories
+# Note: This is a destructive action!
+installers = 15
+tmp = 1
+
 [backup]
 enabled = false
 destination = "/Volumes/ExternalDisk/Backups"

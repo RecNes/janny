@@ -37,8 +37,10 @@ func TestOrganizer_PlanFile(t *testing.T) {
 		{Category: "images", Type: config.PatternTypeRegex, Pattern: "^img_\\d+\\.png$"},
 		// PatternTypeGlob is exported?
 		// internal/config/config.go: PatternTypeGlob is exported.
+
 		// PatternRule fields are exported.
 		{Category: "reports", Type: config.PatternTypeGlob, Pattern: "*report*"},
+		{Category: "docs", Type: config.PatternTypeFolder, Pattern: "my_*"},
 	}
 
 	org := New(cfg, nil, false, false)
@@ -46,24 +48,23 @@ func TestOrganizer_PlanFile(t *testing.T) {
 
 	tests := []struct {
 		filename     string
+		isDir        bool
 		wantCategory string
 		wantSkip     bool
 	}{
-		{"file.txt", "docs", false},                // Extension match
-		{"final_report.pdf", "reports", false},     // Glob match
-		{"img_123.png", "images", false},           // Regex match
-		{"img_abc.png", "", true},                  // Regex mismatch
-		{"quarterly_report.txt", "reports", false}, // Pattern priority (report) vs Extension (docs)?
-		// Wait, "quarterly_report.txt":
-		// Matches glob "*report*" -> Category "reports"
-		// Matches extension "txt" -> Category "docs"
-		// Patterns are checked FIRST. So it should be "reports".
-		{"unknown.xyz", "", true}, // No match
+		{"file.txt", false, "docs", false},                // Extension match
+		{"final_report.pdf", false, "reports", false},     // Glob match
+		{"img_123.png", false, "images", false},           // Regex match
+		{"img_abc.png", false, "", true},                  // Regex mismatch
+		{"quarterly_report.txt", false, "reports", false}, // Pattern priority
+		{"unknown.xyz", false, "", true},                  // No match
+		{"my_folder", true, "docs", false},                // Folder match (my_*)
+		{"other_folder", true, "", true},                  // Folder mismatch
 	}
 
 	for _, tt := range tests {
 		path := filepath.Join("/tmp/source", tt.filename)
-		action, err := org.planFile(ctx, path)
+		action, err := org.planFile(ctx, path, tt.isDir)
 		if err != nil {
 			t.Errorf("planFile(%s) unexpected error: %v", tt.filename, err)
 			continue

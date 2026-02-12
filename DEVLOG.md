@@ -31,3 +31,10 @@
 ### Refactoring
 
 - **Organizer Output**: Refactored the organizer to split the process into planning and execution phases. This allows for a clean, tree-structured output in `dry-run` mode (and verbose mode), significantly reducing noise compared to the previous line-by-line logging.
+
+### Feature Update: Directory Rules & Auto Clean
+
+- **Directory Support**: Implemented `folder:` prefix for rules, enabling organization of entire directories based on patterns (e.g., `folder:project_*`).
+- **Auto Clean**: Added `[auto_clean]` configuration section to automatically delete files in specific categories older than a configured number of days.
+- **Organizer Logic**: Updated the organizer to handle directory entries and run the cleaning process after organization.
+- **Verification**: Verified the new features using a reproduction script `temp/repro.go` in a controlled environment, confirming correct behavior for folder matching and file deletion.
