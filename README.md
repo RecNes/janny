@@ -203,8 +203,26 @@ smart_learn_prompt = "You are a file organizer. Analyze these extensions..."
 default_storage_path = "~/Backup"
 ```
 
+## Terminal User Interface (TUI)
+
+Janny includes a powerful Terminal User Interface for interactive management.
+
+### Features
+- **Dashboard**: Real-time system status and action output.
+- **Interactive Config**: Full-form editing of your rules and paths.
+- **File Browser**: Select directories directly from the terminal.
+- **English/Turkish Support**: Fully localized interface.
+
+### Build and Run TUI
+To build the TUI separately:
+```bash
+go build -o bin/janny-tui ./tui
+./bin/janny-tui
+```
+
 ## Development
 
 1. Clone the repository
 2. Run `go mod tidy`
-3. Build with `go build ./cmd/janny`
+3. Build CLI: `go build -o bin/janny ./cmd/janny`
+4. Build TUI: `go build -o bin/janny-tui ./tui`
